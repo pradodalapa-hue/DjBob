@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mesa DJ PWA Avançada</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Adicionando o link para o manifesto do PWA -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Links para ícones de atalho (recomendado para PWA, mesmo que os arquivos não sejam gerados diretamente) -->
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="icon" type="image/png" href="icons/icon-192x192.png">
+    <meta name="theme-color" content="#a78bfa"/> <!-- Cor da barra de status do navegador em Android -->
+    <style>
+        /* Custom styles for the volume knob rotation */
+        .volume-knob {
+            transform: rotate(-45deg); /* Default position */
+            transition: transform 0.2s ease-in-out;
+        }
+        .volume-knob:hover {
+            transform: rotate(45deg); /* Example hover effect */
+        }
+
+        /* Custom scrollbar for media list */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(55, 65, 81, 0.5); /* gray-700 with opacity */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #818cf8; /* indigo-400 */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #6366f1; /* indigo-500 */
+        }
+
+        /* Drag-and-drop styles */
+        .dragging {
+            opacity: 0.5;
+            border: 2px dashed #a78bfa; /* purple-400 */
+        }
+        .drag-over-top {
+            border-top: 2px solid #6366f1; /* indigo-500 */
+        }
+        .drag-over-bottom {
+            border-bottom: 2px solid #6366f1; /* indigo-500 */
+        }
+
+        /* Styles for the DJ Screen - Responsive positioning */
+        #djScreen {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            width: calc(100% - 2rem); /* Full width minus padding on small screens */
+            max-width: 350px; /* Max width for larger screens */
+            height: auto;
+            aspect-ratio: 16 / 9; /* Maintain aspect ratio */
+            /* Adjusted top to bring it closer to the main table */
+            top: 0.5rem; /* Default top position */
+            background-color: #000;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5), inset 0 0 10px rgba(0, 255, 255, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            transition: background-color 0.5s ease;
+        }
+        /* Adjust screen position for different breakpoints to avoid overlapping */
+        @media (min-width: 640px) { /* sm breakpoint */
+            #djScreen { top: 1rem; }
+        }
+        @media (min-width: 768px) { /* md breakpoint */
+            #djScreen { top: 0.5rem; width: 350px; } /* Fixed width on desktop */
+        }
+        @media (min-width: 1024px) { /* lg breakpoint */
+            #djScreen { top: 1rem; }
+        }
+
+        .screen-content {
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .screen-content.active {
+            display: flex;
+        }
+
+        .beat-visualizer {
+            display: flex;
+            gap: 8px;
+            height: 100%;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Beat Visualizer bars animation - ONLY when 'is-playing-audio' is active */
+        .beat-visualizer.is-playing-audio .beat-bar {
+            width: 12px;
+            height: 4px;
+            background-color: #4CAF50;
+            border-radius: 2px;
+            animation: pulse 0.8s infinite alternate ease-in-out;
+            transform-origin: bottom;
+        }
+        .beat-visualizer.is-playing-audio .beat-bar:nth-child(2) { animation-delay: 0.1s; background-color: #2196F3; }
+        .beat-visualizer.is-playing-audio .beat-bar:nth-child(3) { animation-delay: 0.2s; background-color: #FFEB3B; }
+        .beat-visualizer.is-playing-audio .beat-bar:nth-child(4) { animation-delay: 0.3s; background-color: #FF5722; }
+        .beat-visualizer.is-playing-audio .beat-bar:nth-child(5) { animation-delay: 0.4s; background-color: #9C27B0; }
+        .beat-visualizer.is-playing-audio .beat-bar:nth-child(6) { animation-delay: 0.5s; background-color: #00BCD4; }
+        .beat-visualizer.is-playing-audio .beat-bar:nth-child(7) { animation-delay: 0.6s; background-color: #E91E63; }
+
+        @keyframes pulse {
+            0% { height: 4px; transform: scaleY(1); opacity: 0.7; }
+            50% { height: 80px; transform: scaleY(1.5); opacity: 1; }
+            100% { height: 4px; transform: scaleY(1); opacity: 0.7; }
+        }
+
+        /* Video display takes 100% of parent, black background when no video source */
+        .video-display {
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-display video, .video-display audio {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .video-display audio {
+            object-fit: initial;
+        }
+
+        /* Currently playing item in playlist */
+        .playing-item {
+            background-color: #a78bfa !important;
+            color: #ffffff !important;
+            border-color: #8b5cf6 !important;
+        }
+        .playing-item svg {
+            color: #ffffff !important;
+        }
+
+        /* Energetic Idle Screen Animations */
+        @keyframes pulse-bg {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+        .animate-pulse-bg {
+            animation: pulse-bg 3s infinite ease-in-out;
+        }
+
+        @keyframes heartbeat {
+            0% { transform: scale(0.8); opacity: 0.4; background-color: #ef4444; }
+            25% { transform: scale(1.2); opacity: 0.8; background-color: #ec4899; }
+            50% { transform: scale(0.9); opacity: 0.5; background-color: #a855f7; }
+            75% { transform: scale(1.1); opacity: 0.7; background-color: #6366f1; }
+            100% { transform: scale(0.8); opacity: 0.4; background-color: #ef4444; }
+        }
+        .animate-heartbeat {
+            animation: heartbeat 2s infinite ease-in-out;
+        }
+
+        /* Welcome text animation */
+        @keyframes slideInFromLeft {
+            0% { transform: translateX(-100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+        .animate-slide-in {
+            animation: slideInFromLeft 1.5s ease-out forwards;
+        }
+        .animate-slide-in.delay-1 {
+            animation-delay: 0.5s;
+        }
+
+        /* Style for active genre tab */
+        .genre-tab-btn.active {
+            background-color: #4f46e5;
+            color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            transform: translateY(-2px);
+        }
+
+        /* Style for currently selected beat option */
+        .beat-option-btn.active-beat {
+            background-color: #8b5cf6 !important;
+            color: white !important;
+            box-shadow: 0 0 8px rgba(139, 92, 246, 0.7);
+            border: 1px solid #c084fc;
+        }
+
+        /* Style for selected Bluetooth device */
+        .bluetooth-device-item.selected {
+            background-color: #4c51bf !important;
+            color: white !important;
+            border: 1px solid #6366f1;
+        }
+        /* Style for PWA Install Button */
+        #installPwaButton {
+            display: none; /* Hidden by default, shown when install prompt is available */
+        }
+
+        /* 3D Spinning and Color Changing Turntable Discs */
+        .turntable-disc {
+            transform-style: preserve-3d;
+            transform: rotateX(20deg) rotateY(10deg); /* Initial 3D tilt */
+            animation: spin3D 8s infinite linear, colorCycle 15s infinite alternate; /* Spin and color cycle */
+            will-change: transform, filter; /* Optimize for animation */
+            transition: transform 0.2s ease-out;
+        }
+
+        .turntable-disc:hover {
+            transform: rotateX(0deg) rotateY(0deg) scale(1.05); /* Straighten up and grow slightly on hover */
+        }
+
+        @keyframes spin3D {
+            0% { transform: rotateX(20deg) rotateY(10deg) rotateZ(0deg); }
+            100% { transform: rotateX(20deg) rotateY(10deg) rotateZ(360deg); }
+        }
+
+        @keyframes colorCycle {
+            0% { filter: hue-rotate(0deg); background-color: #10B981; } /* emerald-500 */
+            25% { filter: hue-rotate(90deg); background-color: #3B82F6; } /* blue-500 */
+            50% { filter: hue-rotate(180deg); background-color: #EC4899; } /* pink-500 */
+            75% { filter: hue-rotate(270deg); background-color: #A855F7; } /* purple-500 */
+            100% { filter: hue-rotate(360deg); background-color: #10B981; } /* emerald-500, completes the cycle */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main container for the DJ setup, responsive max-width and flexible height -->
+    <div class="relative w-full max-w-5xl mx-auto min-h-screen flex flex-col items-center justify-start pt-4 pb-8 sm:pt-8">
+
+        <!-- Area for DJ Screen, acts as a spacer to push main table down -->
+        <!-- Adjusted height to bring the screen closer -->
+        <div class="w-full h-12 sm:h-16 md:h-12 lg:h-14 xl:h-16"></div>
+
+        <!-- DJ Screen -->
+        <div id="djScreen">
+            <!-- Screen States -->
+            <div id="offScreen" class="screen-content bg-black">
+                <!-- Completely black and empty when off, no text -->
+            </div>
+
+            <div id="welcomeScreen" class="screen-content text-white text-xl font-bold text-center p-4">
+                <p class="animate-slide-in">Seja bem vindo,</p>
+                <p class="text-3xl mt-2 text-yellow-300 animate-slide-in delay-1">A festa vai começar!</p>
+            </div>
+
+            <div id="energeticIdleScreen" class="screen-content flex-col text-gray-300 relative overflow-hidden">
+                <div class="absolute inset-0 bg-gradient-to-br from-indigo-800 to-purple-800 animate-pulse-bg"></div>
+                <div class="heartbeat-pulse absolute w-10 h-10 rounded-full bg-red-500 opacity-50 animate-heartbeat"></div>
+            </div>
+
+            <div id="beatVisualizer" class="screen-content beat-visualizer">
+                <div class="beat-bar"></div>
+                <div class="beat-bar"></div>
+                <div class="beat-bar"></div>
+                <div class="beat-bar"></div>
+                <div class="beat-bar"></div>
+                <div class="beat-bar"></div>
+                <div class="beat-bar"></div>
+            </div>
+
+            <div id="videoDisplay" class="screen-content video-display">
+                <video id="videoPlayer" class="w-full h-full object-contain"></video>
+                <audio id="audioPlayer" class="hidden"></audio> <!-- Hidden audio player -->
+            </div>
+        </div>
+
+        <!-- Mesa Topo (contains turntables and mixer) -->
+        <div class="relative w-full h-auto min-h-[300px] sm:min-h-[220px] md:h-[180px] lg:h-[200px] xl:h-[220px] bg-gray-700 rounded-t-lg shadow-2xl flex flex-col md:flex-row items-center justify-around p-2 sm:p-4 z-10">
+
+            <!-- Turntable/CDJ Esquerdo -->
+            <div class="w-full md:w-[280px] h-[120px] md:h-[150px] bg-gray-900 rounded-md shadow-xl flex items-center justify-center relative mb-4 md:mb-0">
+                <!-- Turntable Disc 1 - 3D Spinning & Color Changing -->
+                <div id="turntableDisc1" class="turntable-disc w-24 h-24 sm:w-28 sm:h-28 bg-emerald-500 rounded-full border-2 border-green-500 shadow-inner flex items-center justify-center text-white text-xl font-bold">1</div>
+                <!-- Botão Play Esquerdo - Laranja com centro Azul Piscina -->
+                <div class="absolute top-4 left-4 w-6 h-6 bg-orange-500 rounded-full shadow-md cursor-pointer hover:bg-orange-400 transition-colors flex items-center justify-center play-button-left">
+                    <div class="w-4 h-4 bg-cyan-400 rounded-full"></div>
+                </div>
+                <div class="absolute bottom-4 right-4 w-4 h-4 bg-gray-500 rounded-sm shadow-md"></div> <!-- Knob -->
+                <div class="absolute bottom-4 left-4 w-8 h-2 bg-gray-500 rounded-sm"></div> <!-- Fader Lateral -->
+            </div>
+
+            <!-- Mixer -->
+            <div class="w-full md:w-[280px] h-[120px] md:h-[150px] bg-gray-900 rounded-md shadow-xl p-3 flex flex-col justify-around items-center mb-4 md:mb-0">
+                <!-- Vazio, pois os botões foram movidos para o painel inferior -->
+                <div class="w-full h-full flex items-center justify-center text-gray-600 text-lg font-bold">
+                    MIXER CONTROLS
+                </div>
+            </div>
+
+            <!-- Turntable/CDJ Direito -->
+            <div class="w-full md:w-[280px] h-[120px] md:h-[150px] bg-gray-900 rounded-md shadow-xl flex items-center justify-center relative">
+                <!-- Turntable Disc 2 - 3D Spinning & Color Changing -->
+                <div id="turntableDisc2" class="turntable-disc w-24 h-24 sm:w-28 sm:h-28 bg-emerald-500 rounded-full border-2 border-green-500 shadow-inner flex items-center justify-center text-white text-xl font-bold">2</div>
+                <!-- Botão Play Direito - Laranja com centro Azul Piscina -->
+                <div class="absolute top-4 left-4 w-6 h-6 bg-orange-500 rounded-full shadow-md cursor-pointer hover:bg-orange-400 transition-colors flex items-center justify-center play-button-right">
+                    <div class="w-4 h-4 bg-cyan-400 rounded-full"></div>
+                </div>
+                <div class="absolute bottom-4 right-4 w-4 h-4 bg-gray-500 rounded-sm shadow-md"></div> <!-- Knob -->
+                <div class="absolute bottom-4 left-4 w-8 h-2 bg-gray-500 rounded-sm"></div> <!-- Fader Lateral -->
+            </div>
+        </div>
+
+        <!-- Corpo da Mesa/Estrutura das Pernas -->
+        <div class="w-full flex-grow min-h-[300px] bg-gray-800 rounded-b-lg -mt-2 sm:-mt-4 shadow-xl flex items-end justify-between p-4 sm:p-8 z-0">
+            <!-- Perna Esquerda -->
+            <div class="hidden md:block w-20 lg:w-[120px] h-[200px] md:h-[300px] bg-gray-700 rounded-lg shadow-inner"></div>
+
+            <!-- Painel de Controle Inferior (agora centralizado na base da mesa com todos os botões) -->
+            <div id="bottomControls" class="w-full max-w-xl h-auto min-h-[180px] bg-gray-900 rounded-lg shadow-xl p-4 flex flex-col justify-around items-center z-10">
+                <div class="w-full flex justify-around items-center mt-2 flex-wrap gap-2">
+                    <!-- Botão Volume -->
+                    <div class="flex flex-col items-center">
+                        <div class="w-10 h-10 bg-gray-600 rounded-full border-2 border-gray-500 shadow-inner flex items-center justify-center text-xs text-gray-300 volume-knob cursor-pointer hover:bg-gray-500 transition-colors">
+                            <span class="block w-4 h-4 bg-gray-400 rounded-full"></span>
+                        </div>
+                        <span class="text-[10px] text-gray-400 mt-1 select-none">VOLUME</span>
+                    </div>
+                    <!-- Botão AV -->
+                    <div class="relative flex flex-col items-center">
+                        <button id="avButton" class="w-10 h-10 bg-blue-600 rounded-md shadow-md flex items-center justify-center text-white text-base font-bold cursor-pointer hover:bg-blue-500 transition-colors">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm14 1V4h-1.5a.5.5 0 000 1h1.5zm0 2V6h-1.5a.5.5 0 000 1h1.5zm0 2V8h-1.5a.5.5 0 000 1h1.5zm0 2v-1h-1.5a.5.5 0 000 1h1.5zM4 16a2 2 0 01-2-2v-1h16v1a2 2 0 01-2 2H4z"></path></svg>
+                        </button>
+                        <span class="text-[10px] text-gray-400 mt-1 select-none">AV</span>
+
+                        <!-- Floating Panel for AV Options (for future expansion or simple message) -->
+                        <div id="avOptionsPanel" class="hidden absolute bottom-full mb-2 p-3 bg-gray-700 rounded-lg shadow-xl border border-gray-600 z-30 flex flex-col items-stretch space-y-2 w-60">
+                            <h4 class="text-sm font-semibold text-white text-center mb-2">Entrada AV</h4>
+                            <p class="text-gray-300 text-xs text-center">Conecte um dispositivo de áudio/vídeo externo.</p>
+                            <button class="bg-gray-600 hover:bg-gray-500 text-white text-xs py-2 px-3 rounded-md transition-colors">
+                                Selecionar Entrada (Simulado)
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Botão Mídias -->
+                    <div class="flex flex-col items-center">
+                        <button id="mediaButton" class="w-10 h-10 bg-purple-600 rounded-md shadow-md flex items-center justify-center text-white text-base font-bold cursor-pointer hover:bg-purple-500 transition-colors">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </button>
+                        <span class="text-[10px] text-gray-400 mt-1 select-none">MÍDIAS</span>
+                    </div>
+                    <!-- Botão Power da Tela -->
+                    <div class="flex flex-col items-center">
+                        <button id="powerButton" class="w-10 h-10 bg-red-600 rounded-md shadow-md cursor-pointer hover:bg-red-500 transition-colors flex items-center justify-center">
+                            <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zm4.356 2.644a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM17 10a1 1 0 100-2h-1a1 1 0 100 2h1zm-1.356 4.356a1 1 0 001.414 1.414l.707-.707a1 1 0 00-1.414-1.414l-.707.707zM10 17a1 1 0 100-2H9a1 1 0 100 2h1zm-4.356-1.356a1 1 0 00-1.414 1.414l-.707-.707a1 1 0 001.414-1.414l.707.707zM3 10a1 1 0 100-2H2a1 1 0 100 2h1zm1.356-4.356a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM10 12a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"></path></svg>
+                        </button>
+                        <span class="text-[10px] text-gray-400 mt-1 select-none">TELA ON/OFF</span>
+                    </div>
+                </div>
+
+                <!-- 5 Botões Quadrados Numerados (com botão 5 como microfone) -->
+                <div class="w-full flex justify-around items-center mt-4 gap-2 flex-wrap">
+                    <!-- Botão 1: Próxima Faixa -->
+                    <button id="button1" class="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white font-bold text-lg rounded-md shadow-md transition-colors flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5l4 4-4 4"></path></svg>
+                    </button>
+                    <!-- Botão 2 -->
+                    <button id="button2" class="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white font-bold text-lg rounded-md shadow-md transition-colors">2</button>
+                    <!-- Botão 3: Batidas/FX (com painel flutuante) -->
+                    <div class="relative flex flex-col items-center">
+                        <button id="button3" class="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-white font-bold text-lg rounded-md shadow-md transition-colors flex items-center justify-center">
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 00-.707 1.707l3 3a1 1 0 001.414 0l3-3A1 1 0 0013 9H7z" clip-rule="evenodd"></path></svg>
+                        </button>
+                        <span class="text-[10px] text-gray-400 mt-1 select-none">BATIDAS FX</span>
+
+                        <!-- Floating Panel for Beat Options -->
+                        <div id="beatOptionsPanel" class="hidden absolute bottom-full mb-2 p-3 bg-gray-700 rounded-lg shadow-xl border border-gray-600 z-30 flex flex-col items-stretch w-72">
+                            <h4 class="text-sm font-semibold text-white text-center mb-2">Escolha a Batida</h4>
+                            <!-- Genre Tabs -->
+                            <div class="flex justify-around mb-3">
+                                <button class="genre-tab-btn px-3 py-1 rounded-md text-sm font-medium text-gray-300 bg-gray-600 hover:bg-indigo-700 transition-colors" data-genre="eletronica">Eletrônica</button>
+                                <button class="genre-tab-btn px-3 py-1 rounded-md text-sm font-medium text-gray-300 bg-gray-600 hover:bg-purple-700 transition-colors" data-genre="funk">Funk</button>
+                                <button class="genre-tab-btn px-3 py-1 rounded-md text-sm font-medium text-gray-300 bg-gray-600 hover:bg-pink-700 transition-colors" data-genre="forro">Forró</button>
+                            </div>
+
+                            <!-- Beat List for selected Genre (increased max-height for better visibility) -->
+                            <div id="genreBeatsContainer" class="flex-grow space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-2">
+                                <!-- Beats will be dynamically loaded here -->
+                            </div>
+
+                            <!-- Stop All Beats Button (always visible) -->
+                            <button id="stopAllBeatsButton" class="beat-option-btn bg-gray-500 hover:bg-gray-600 text-white text-xs py-2 px-3 rounded-md transition-colors mt-3" data-src="">Parar Batida</button>
+                        </div>
+                    </div>
+                    <!-- Botão 4: Play/Pause -->
+                    <button id="playPauseButton" class="w-10 h-10 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-md shadow-md transition-colors flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path>
+                        </svg>
+                    </button>
+                    <!-- Botão Microfone (era o 5) -->
+                    <button id="microphoneButton" class="w-10 h-10 bg-gray-700 hover:bg-gray-600 text-red-500 font-bold text-lg rounded-md shadow-md transition-colors flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0 5 5 0 01-10 0 1 1 0 10-2 0 7.001 7.001 0 006 6.93V17h-3a1 1 0 100 2h7a1 1 0 100-2h-3v-2.07z" clip-rule="evenodd"></path></svg>
+                    </button>
+                </div>
+
+                <!-- Playlist de Músicas (abaixo dos 5 botões) -->
+                <div class="w-full bg-gray-800 p-3 rounded-md mt-6 shadow-inner border border-gray-700 flex flex-col items-start">
+                    <h3 class="text-md font-semibold text-white mb-2 flex items-center">
+                        <svg class="w-5 h-5 mr-2 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Músicas Carregadas
+                    </h3>
+                    <ul id="onConsolePlaylist" class="w-full text-sm text-gray-200 min-h-[50px] max-h-[100px] overflow-y-auto custom-scrollbar pr-2 space-y-1">
+                        <!-- Músicas aparecerão aqui -->
+                    </ul>
+                    <p id="noConsoleMediaMessage" class="text-gray-400 text-sm italic mt-2 hidden w-full text-center">
+                        Nenhuma música adicionada. Use o botão "MÍDIAS" para adicionar!
+                    </p>
+                </div>
+
+            </div>
+            <!-- Perna Direita -->
+            <div class="hidden md:block w-20 lg:w-[120px] h-[200px] md:h-[300px] bg-gray-700 rounded-lg shadow-inner"></div>
+        </div>
+
+    </div>
+
+    <!-- Interface de Mídias (Modal Básico) -->
+    <div id="mediaInterface" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+        <div class="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md relative border border-gray-700">
+            <h2 class="text-xl font-bold text-white mb-4">Gerenciador de Mídias</h2>
+            <button id="closeMediaInterface" class="absolute top-3 right-3 text-gray-400 hover:text-white text-2xl font-bold">&times;</button>
+
+            <div class="flex flex-col space-y-4">
+                <!-- Botão para adicionar mídias, que aciona o input de arquivo oculto -->
+                <button id="addMediaButton" class="bg-blue-700 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-md transition-colors flex items-center justify-center cursor-pointer">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m-9 1V7a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H9a2 2 0 01-2-2zm-1 9V11a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2zm12-9V7a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    Adicionar Mídias do Celular
+                </button>
+                <!-- Input de arquivo oculto -->
+                <input type="file" id="mediaFileInput" multiple accept="audio/*,video/*" class="hidden">
+
+                <!-- Botão para abrir a interface avançada de playlist -->
+                <button id="openAdvancedPlaylistButton" class="bg-green-700 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-md transition-colors flex items-center justify-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Abrir Playlist Avançada (<span id="mediaCount">0</span> Mídias)
+                </button>
+
+                <!-- Botão de Instalação do PWA (aparece apenas quando a funcionalidade está disponível) -->
+                <button id="installPwaButton" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-md transition-colors flex items-center justify-center">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414-1.414L9 9.586V4a1 1 0 112 0v5.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3z" clip-rule="evenodd"></path></svg>
+                    Instalar DJ PWA
+                </button>
+            </div>
+
+            <div class="mt-6">
+                <h3 class="text-lg font-semibold text-gray-300 mb-2">Mídias Adicionadas Recentemente:</h3>
+                <div class="bg-gray-700 p-4 rounded-md h-32 overflow-y-auto border border-gray-600 custom-scrollbar">
+                    <p id="noMediaMessage" class="text-gray-400 text-sm italic">Nenhuma mídia adicionada ainda.</p>
+                    <ul id="mediaList" class="text-gray-200 text-sm mt-2 space-y-1">
+                        <!-- Mídias adicionadas serão listadas aqui -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Interface Avançada de Playlist (Modal Robusto e Colorido com Drag-and-Drop) -->
+    <div id="advancedPlaylistInterface" class="hidden fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50">
+        <div class="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-lg shadow-2xl p-6 w-full max-w-2xl relative border border-purple-700">
+            <h2 class="text-3xl font-extrabold text-white mb-6 text-center">DJ Playlist <span class="text-indigo-400">Master</span></h2>
+            <button id="closeAdvancedPlaylist" class="absolute top-4 right-4 text-white hover:text-red-400 text-3xl font-bold">&times;</button>
+
+            <div class="bg-gray-900 bg-opacity-70 rounded-md p-4 mb-4 shadow-inner">
+                <h3 class="text-xl font-semibold text-gray-200 mb-3 flex items-center">
+                    <svg class="w-6 h-6 mr-2 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    Músicas na Fila (<span id="advancedMediaCount">0</span>)
+                </h3>
+                <ul id="draggablePlaylist" class="space-y-2 text-lg text-gray-100 min-h-[150px] max-h-[300px] overflow-y-auto custom-scrollbar p-2 rounded-md border border-indigo-600 bg-gray-800 bg-opacity-50">
+                    <!-- Draggable playlist items will go here -->
+                </ul>
+                <p id="noAdvancedMediaMessage" class="text-gray-400 text-center italic mt-4 hidden">Nenhuma música na playlist. Adicione algumas mídias!</p>
+            </div>
+
+            <div class="flex justify-center mt-6">
+                <p class="text-gray-300 text-sm">Arraste e solte as músicas para reordenar a playlist!</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // INSTRUÇÕES PARA PWA (Progressive Web App):
+        // Para que o PWA funcione corretamente, você precisará criar dois arquivos na mesma pasta deste HTML:
+        // 1. Um arquivo chamado `manifest.json`
+        // 2. Um arquivo chamado `service-worker.js`
+        // 3. Uma pasta `icons` com os ícones necessários (pelo menos icon-192x192.png e icon-512x512.png).
+
+        // A seguir, está o conteúdo que você deve COPIAR e COLAR para esses arquivos:
+
+        /*
+        // Conteúdo para o arquivo `manifest.json`
+        {
+          "name": "DJ Console PWA",
+          "short_name": "DJ PWA",
+          "description": "Uma mesa de DJ virtual interativa como um Progressive Web App.",
+          "start_url": "./",
+          "display": "standalone",
+          "background_color": "#1a202c",
+          "theme_color": "#a78bfa",
+          "icons": [
+            {
+              "src": "icons/icon-192x192.png",
+              "sizes": "192x192",
+              "type": "image/png"
+            },
+            {
+              "src": "icons/icon-512x512.png",
+              "sizes": "512x512",
+              "type": "image/png"
+            }
+          ]
+        }
+
+        // Conteúdo para o arquivo `service-worker.js`
+        const CACHE_NAME = 'dj-pwa-cache-v1';
+        const urlsToCache = [
+            './', // O próprio index.html ou o arquivo raiz
+            './index.html', // Nome do seu arquivo HTML
+            './manifest.json', // O manifesto
+            'https://cdn.tailwindcss.com', // Tailwind CSS CDN
+            // Ícones (crie esses arquivos na pasta 'icons')
+            'icons/icon-192x192.png',
+            'icons/icon-512x512.png',
+            // URLs dos exemplos de áudio SoundHelix para cache offline
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3',
+            'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3'
+        ];
+
+        self.addEventListener('install', (event) => {
+            console.log('[Service Worker] Installing...');
+            event.waitUntil(
+                caches.open(CACHE_NAME)
+                    .then((cache) => {
+                        console.log('[Service Worker] Caching all content');
+                        return cache.addAll(urlsToCache);
+                    })
+            );
+        });
+
+        self.addEventListener('fetch', (event) => {
+            event.respondWith(
+                caches.match(event.request)
+                    .then((response) => {
+                        // Cache hit - return response
+                        if (response) {
+                            console.log('[Service Worker] Serving from cache:', event.request.url);
+                            return response;
+                        }
+                        // No cache hit - fetch from network
+                        console.log('[Service Worker] Fetching from network:', event.request.url);
+                        return fetch(event.request);
+                    })
+            );
+        });
+
+        self.addEventListener('activate', (event) => {
+            console.log('[Service Worker] Activating...');
+            event.waitUntil(
+                caches.keys().then((cacheNames) => {
+                    return Promise.all(
+                        cacheNames.map((cacheName) => {
+                            if (cacheName !== CACHE_NAME) {
+                                console.log('[Service Worker] Deleting old cache:', cacheName);
+                                return caches.delete(cacheName);
+                            }
+                        })
+                    );
+                })
+            );
+        });
+        */
+
+        const mediaButton = document.getElementById('mediaButton');
+        const mediaInterface = document.getElementById('mediaInterface');
+        const closeMediaInterface = document.getElementById('closeMediaInterface');
+        const addMediaButton = document.getElementById('addMediaButton');
+        const mediaFileInput = document.getElementById('mediaFileInput');
+        const mediaList = document.getElementById('mediaList');
+        const noMediaMessage = document.getElementById('noMediaMessage');
+        const mediaCountSpan = document.getElementById('mediaCount');
+
+        const openAdvancedPlaylistButton = document.getElementById('openAdvancedPlaylistButton');
+        const advancedPlaylistInterface = document.getElementById('advancedPlaylistInterface');
+        const closeAdvancedPlaylist = document.getElementById('closeAdvancedPlaylist');
+        const draggablePlaylist = document.getElementById('draggablePlaylist');
+        const noAdvancedMediaMessage = document.getElementById('noAdvancedMediaMessage');
+        const advancedMediaCountSpan = document.getElementById('advancedMediaCount');
+
+        const djScreen = document.getElementById('djScreen');
+        const powerButton = document.getElementById('powerButton');
+        const offScreen = document.getElementById('offScreen');
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const energeticIdleScreen = document.getElementById('energeticIdleScreen');
+        const beatVisualizer = document.getElementById('beatVisualizer');
+        const videoDisplay = document.getElementById('videoDisplay');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const microphoneButton = document.getElementById('microphoneButton'); // Microfone button
+
+        // New button references
+        const button1 = document.getElementById('button1'); // Button for Next Track
+        const button3 = document.getElementById('button3'); // Button for Beats/FX
+        const playPauseButton = document.getElementById('playPauseButton'); // Button for Play/Pause
+        const playButtonLeft = document.querySelector('.play-button-left'); // Turntable left play button
+        const playButtonRight = document.querySelector('.play-button-right'); // Turntable right play button
+
+        // Beat options panel elements
+        const beatOptionsPanel = document.getElementById('beatOptionsPanel'); // Floating panel for beat options
+        const genreTabButtons = document.querySelectorAll('.genre-tab-btn'); // Genre tab buttons
+        const genreBeatsContainer = document.getElementById('genreBeatsContainer'); // Container for beats of selected genre
+        const stopAllBeatsButton = document.getElementById('stopAllBeatsButton'); // Specific "Parar Batida" button
+
+        // AV options panel elements (formerly Bluetooth)
+        const avButton = document.getElementById('avButton');
+        const avOptionsPanel = document.getElementById('avOptionsPanel');
+        // No specific buttons inside AV panel for now, just info.
+
+        // New references for on-console playlist
+        const onConsolePlaylist = document.getElementById('onConsolePlaylist');
+        const noConsoleMediaMessage = document.getElementById('noConsoleMediaMessage');
+
+        // New audio element for main transition beats (HTMLAudioElement for browser compatibility/simplicity)
+        const transitionBeatAudio = new Audio();
+        transitionBeatAudio.loop = true;
+        transitionBeatAudio.volume = 0; // Start muted, controlled by Web Audio API
+        document.body.appendChild(transitionBeatAudio);
+
+        // New audio element for PREVIEWING beats
+        const previewBeatAudio = new Audio();
+        previewBeatAudio.loop = true;
+        previewBeatAudio.volume = 0.7; // Moderate volume for preview
+        document.body.appendChild(previewBeatAudio);
+        let activePreviewButton = null; // Stores the currently active preview button element
+
+        // PWA Installation related elements
+        const installPwaButton = document.getElementById('installPwaButton');
+        let deferredPrompt; // To store the event for later triggering
+
+        let addedMediaFiles = [];
+        let draggedItem = null;
+        let currentPlayingIndex = -1;
+
+        let isPoweredOn = false;
+        let welcomeTimeout = null;
+        let isMicrophoneOn = false;
+        let isPlaying = false; // Tracks if actual main media (audio/video) is playing
+
+        // --- New: Transition Beat Variables ---
+        let currentTransitionBeatUrl = ''; // Stores the URL of the selected main transition beat
+        let isTransitionBeatPlaying = false; // Tracks if the main transition beat is currently audible/playing
+        let isFadeOutTriggered = false; // Flag to prevent multiple fade-out triggers for one song
+        const TRANSITION_FADE_DURATION = 1000; // 1 second for fades
+        const AUTO_TRANSITION_TIME = 5; // Start transition 5 seconds before track end
+
+        // Web Audio API related variables
+        let audioContext;
+        let mediaSourceNode = null; // Source from video/audio player
+        let mediaGainNode;
+        let micStream = null;
+        let micSourceNode = null;
+        let micGainNode;
+        let transitionBeatGainNode; // New: Gain node for main transition beats
+
+        // --- Beat Library ---
+        const beatLibrary = {
+            eletronica: [
+                { name: "Tech House Groove", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
+                { name: "Trance Pulse", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" },
+                { name: "Deep House Beat", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
+                { name: "Electro Vibe", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3" },
+                { name: "Progressive Flow", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-11.mp3" }
+            ],
+            funk: [
+                { name: "Baile Funk Beat", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" },
+                { name: "Groove Carioca", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3" },
+                { name: "Funk Retro", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3" },
+                { name: "Pancadão Beat", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-13.mp3" },
+                { name: "Hip Hop Funk", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-14.mp3" }
+            ],
+            forro: [
+                { name: "Pé de Serra Rhythm", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3" },
+                { name: "Xote Beat", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3" },
+                { name: "Baião Swing", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3" },
+                { name: "Arrasta-pé Groove", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-15.mp3" },
+                { name: "Forró Roots", src: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-16.mp3" }
+            ]
+        };
+
+        // Initialize AudioContext and main gain nodes
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                // Gain node for main media playback
+                mediaGainNode = audioContext.createGain();
+                mediaGainNode.connect(audioContext.destination);
+
+                // Gain node for microphone input
+                micGainNode = audioContext.createGain();
+                micGainNode.connect(audioContext.destination);
+                micGainNode.gain.value = 1.0; // Default microphone volume (can be adjusted)
+                // IMPORTANT: micGainNode connects directly to destination, allowing microphone audio
+                // to mix with other sounds without muting them.
+
+                // Gain node for main transition beats
+                transitionBeatGainNode = audioContext.createGain();
+                transitionBeatGainNode.connect(audioContext.destination);
+                transitionBeatGainNode.gain.value = 0; // Start muted
+            }
+            // Resume AudioContext if it's suspended (required by browsers for user gesture)
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        // Attach main media elements to AudioContext for mixing
+        function connectMediaToAudioContext(mediaElement) {
+            initAudioContext(); // Ensure AudioContext is initialized
+            if (mediaSourceNode) {
+                mediaSourceNode.disconnect(mediaGainNode); // Disconnect previous source if any
+                mediaSourceNode = null; // Clear old source
+            }
+            mediaSourceNode = audioContext.createMediaElementSource(mediaElement);
+            mediaSourceNode.connect(mediaGainNode);
+            console.log("Main media connected to AudioContext.");
+        }
+
+        // Connect main transition beat audio to Web Audio API
+        let transitionBeatSourceNode = null;
+        transitionBeatAudio.addEventListener('canplaythrough', () => {
+            initAudioContext();
+            if (!transitionBeatSourceNode) { // Only create once per load/connection
+                transitionBeatSourceNode = audioContext.createMediaElementSource(transitionBeatAudio);
+                transitionBeatSourceNode.connect(transitionBeatGainNode);
+                console.log("Main transition beat audio connected to Web Audio API.");
+            }
+        });
+
+        // Function to smoothly change volume of HTMLMediaElement (for main players)
+        function fadeAudio(mediaElement, targetVolume, duration, callback = () => {}) {
+            if (!mediaElement) {
+                callback();
+                return;
+            }
+            const startVolume = mediaElement.volume;
+            const steps = 50;
+            const intervalTime = duration / steps;
+            let currentStep = 0;
+
+            if (duration === 0) { // Instant change
+                mediaElement.volume = targetVolume;
+                if (targetVolume === 0 && !mediaElement.paused) mediaElement.pause();
+                callback();
+                return;
+            }
+
+            const fadeInterval = setInterval(() => {
+                currentStep++;
+                const newVolume = startVolume + (targetVolume - startVolume) * (currentStep / steps);
+                mediaElement.volume = Math.max(0, Math.min(1, newVolume));
+
+                if (currentStep >= steps) {
+                    clearInterval(fadeInterval);
+                    if (targetVolume === 0 && !mediaElement.paused) {
+                        mediaElement.pause();
+                    }
+                    callback();
+                }
+            }, intervalTime);
+        }
+
+        // Function to smoothly change gain of Web Audio API GainNode (for main transition beat)
+        function fadeGain(gainNode, targetValue, durationMs, callback = () => {}) {
+            if (!gainNode || !audioContext) {
+                callback();
+                return;
+            }
+            const startTime = audioContext.currentTime;
+            gainNode.gain.cancelScheduledValues(startTime); // Stop any ongoing fades
+
+            const rampDuration = durationMs / 1000; // Convert to seconds
+            gainNode.gain.setValueAtTime(gainNode.gain.value, startTime); // Set current value as starting point
+            gainNode.gain.linearRampToValueAtTime(targetValue, startTime + rampDuration);
+
+            setTimeout(callback, durationMs); // Execute callback after fade duration
+        }
+
+        // Global function to control main transition beat volume via its gain node
+        function controlTransitionBeatVolume(targetVolume, durationMs, callback = () => {}) {
+            initAudioContext();
+            if (transitionBeatSourceNode && transitionBeatGainNode) {
+                fadeGain(transitionBeatGainNode, targetVolume, durationMs, callback);
+            } else {
+                callback();
+            }
+        }
+
+        // Helper function to stop the preview beat and reset button icons
+        function stopPreviewBeat() {
+            if (previewBeatAudio.paused && !activePreviewButton) return;
+
+            previewBeatAudio.pause();
+            previewBeatAudio.currentTime = 0;
+            previewBeatAudio.removeAttribute('src');
+
+            if (activePreviewButton) {
+                activePreviewButton.querySelector('.play-icon').classList.add('hidden');
+                activePreviewButton.querySelector('.stop-icon').classList.remove('hidden');
+                activePreviewButton = null;
+            }
+        }
+
+        // Helper function to clear active beat styling
+        function clearActiveBeatStyling() {
+            document.querySelectorAll('.beat-option-btn').forEach(btn => btn.classList.remove('active-beat'));
+        }
+
+        // --- Core Media Functions ---
+        function updateMediaCount() {
+            mediaCountSpan.textContent = addedMediaFiles.length;
+            advancedMediaCountSpan.textContent = addedMediaFiles.length;
+
+            if (addedMediaFiles.length === 0) {
+                noMediaMessage.classList.remove('hidden');
+                noAdvancedMediaMessage.classList.remove('hidden');
+                noConsoleMediaMessage.classList.remove('hidden');
+                if (isPoweredOn && currentPlayingIndex === -1 && !isPlaying && !isTransitionBeatPlaying) {
+                    showScreenContent('energeticIdle');
+                }
+            } else {
+                noMediaMessage.classList.add('hidden');
+                noAdvancedMediaMessage.classList.add('hidden');
+                noConsoleMediaMessage.classList.add('hidden');
+            }
+        }
+
+        function renderMediaList() {
+            mediaList.innerHTML = '';
+            addedMediaFiles.forEach((media, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = 'py-1 border-b border-gray-600 last:border-b-0 flex justify-between items-center';
+                listItem.innerHTML = `
+                    <span>${media.name} (${media.type === 'audio' ? 'Áudio' : 'Vídeo'})</span>
+                    <button class="text-red-400 hover:text-red-300 ml-2 remove-media" data-index="${index}">&times;</button>
+                `;
+                mediaList.appendChild(listItem);
+            });
+            updateMediaCount();
+        }
+
+        function renderDraggablePlaylist() {
+            draggablePlaylist.innerHTML = '';
+            addedMediaFiles.forEach((media, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = `bg-gray-700 bg-opacity-50 hover:bg-gray-600 p-2 rounded-md cursor-grab flex items-center justify-between shadow-sm border border-gray-600 transition-colors ${index === currentPlayingIndex ? 'playing-item' : ''}`;
+                listItem.setAttribute('draggable', true);
+                listItem.dataset.index = index;
+                listItem.innerHTML = `
+                    <span class="flex-grow">${index + 1}. ${media.name}</span>
+                    <button class="play-media-btn ml-2 p-1 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white" data-index="${index}" title="Tocar Mídia">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                    </button>
+                    <svg class="w-5 h-5 ml-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                `;
+                draggablePlaylist.appendChild(listItem);
+            });
+            updateMediaCount();
+            attachPlayButtonListeners(draggablePlaylist);
+        }
+
+        function renderOnConsolePlaylist() {
+            onConsolePlaylist.innerHTML = '';
+            if (addedMediaFiles.length === 0) {
+                noConsoleMediaMessage.classList.remove('hidden');
+                return;
+            } else {
+                noConsoleMediaMessage.classList.add('hidden');
+            }
+
+            addedMediaFiles.forEach((media, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = `p-1 rounded-md flex items-center justify-between ${index === currentPlayingIndex ? 'playing-item bg-opacity-70' : 'hover:bg-gray-600 hover:bg-opacity-40'} transition-colors`;
+                listItem.innerHTML = `
+                    <span class="flex-grow truncate">${index + 1}. ${media.name}</span>
+                    <button class="play-media-btn ml-2 p-1 rounded-full bg-indigo-500 hover:bg-indigo-400 text-white" data-index="${index}" title="Tocar Mídia">
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                    </button>
+                `;
+                onConsolePlaylist.appendChild(listItem);
+            });
+            attachPlayButtonListeners(onConsolePlaylist);
+        }
+
+        function attachPlayButtonListeners(parentElement) {
+            parentElement.querySelectorAll('.play-media-btn').forEach(button => {
+                button.onclick = (e) => {
+                    e.stopPropagation();
+                    const index = parseInt(button.dataset.index);
+                    playMedia(index);
+                };
+            });
+        }
+
+        function showScreenContent(mode, mediaFile = null) {
+            document.querySelectorAll('#djScreen .screen-content').forEach(content => {
+                content.classList.remove('active');
+                content.querySelectorAll('.animate-slide-in').forEach(el => el.classList.remove('animate-slide-in', 'delay-1'));
+            });
+
+            beatVisualizer.classList.remove('is-playing-audio');
+            isPlaying = false; // Reset playing state initially when content changes or stops
+
+            videoPlayer.pause();
+            videoPlayer.removeAttribute('src');
+            audioPlayer.pause();
+            audioPlayer.removeAttribute('src');
+
+            if (videoPlayer.src && videoPlayer.src.startsWith('blob:')) URL.revokeObjectURL(videoPlayer.src);
+            if (audioPlayer.src && audioPlayer.src.startsWith('blob:')) URL.revokeObjectURL(audioPlayer.src);
+
+            videoPlayer.classList.add('hidden');
+            audioPlayer.classList.add('hidden');
+
+            if (mediaSourceNode) {
+                mediaSourceNode.disconnect(mediaGainNode);
+                mediaSourceNode = null;
+            }
+
+            if (!isPoweredOn) {
+                offScreen.classList.add('active');
+                djScreen.style.backgroundColor = '#000';
+                return;
+            } else {
+                djScreen.style.backgroundColor = '#1a202c';
+            }
+
+            if (mode === 'welcome') {
+                welcomeScreen.classList.add('active');
+                welcomeScreen.querySelector('p:nth-child(1)').classList.add('animate-slide-in');
+                welcomeScreen.querySelector('p:nth-child(2)').classList.add('animate-slide-in', 'delay-1');
+
+                welcomeTimeout = setTimeout(() => {
+                    if (currentPlayingIndex === -1 && addedMediaFiles.length === 0) {
+                        showScreenContent('energeticIdle');
+                    } else if (currentPlayingIndex !== -1 && isPlaying) {
+                        playMedia(currentPlayingIndex); // Resume playing if it was active
+                    } else {
+                        showScreenContent('energeticIdle');
+                    }
+                }, 3000);
+            } else if (mode === 'energeticIdle') {
+                energeticIdleScreen.classList.add('active');
+            } else if (mode === 'audio' && mediaFile) {
+                videoDisplay.classList.add('active');
+                audioPlayer.classList.remove('hidden');
+                audioPlayer.src = URL.createObjectURL(mediaFile);
+                connectMediaToAudioContext(audioPlayer);
+                audioPlayer.load();
+                audioPlayer.play().then(() => {
+                    isPlaying = true;
+                    beatVisualizer.classList.add('is-playing-audio');
+                }).catch(error => {
+                    console.error("Erro ao tentar reproduzir áudio:", error);
+                    alert("Não foi possível reproduzir o áudio. Verifique o formato ou permissões.");
+                    handleMediaEndOrEmpty();
+                });
+            } else if (mode === 'video' && mediaFile) {
+                videoDisplay.classList.add('active');
+                videoPlayer.classList.remove('hidden');
+                videoPlayer.src = URL.createObjectURL(mediaFile);
+                connectMediaToAudioContext(videoPlayer);
+                videoPlayer.load();
+                videoPlayer.play().then(() => {
+                    isPlaying = true;
+                }).catch(error => {
+                    console.error("Erro ao tentar reproduzir vídeo:", error);
+                    alert("Não foi possível reproduzir o vídeo. Verifique o formato ou permissões.");
+                    handleMediaEndOrEmpty();
+                });
+            }
+        }
+
+        // --- Modified playMedia for smooth transitions and beat integration ---
+        async function playMedia(index) {
+            initAudioContext();
+
+            if (!isPoweredOn) {
+                alert("A tela do DJ está desligada. Por favor, ligue-a primeiro para reproduzir mídias.");
+                return;
+            }
+
+            if (welcomeTimeout) {
+                clearTimeout(welcomeTimeout);
+                welcomeTimeout = null;
+            }
+
+            const newMedia = addedMediaFiles[index];
+            if (!newMedia) {
+                handleMediaEndOrEmpty();
+                return;
+            }
+
+            const oldMediaElement = currentPlayingIndex !== -1 ? (addedMediaFiles[currentPlayingIndex].type === 'video' ? videoPlayer : audioPlayer) : null;
+            const newMediaElement = newMedia.type === 'video' ? videoPlayer : audioPlayer;
+
+            // If a different track is currently playing, fade it out
+            if (oldMediaElement && oldMediaElement !== newMediaElement && !oldMediaElement.paused) {
+                console.log(`Fading out previous track: ${addedMediaFiles[currentPlayingIndex].name}`);
+                await new Promise(resolve => fadeAudio(oldMediaElement, 0, TRANSITION_FADE_DURATION, resolve));
+                oldMediaElement.pause();
+                oldMediaElement.removeAttribute('src');
+                if (mediaSourceNode) {
+                    mediaSourceNode.disconnect(mediaGainNode);
+                    mediaSourceNode = null;
+                }
+            } else if (oldMediaElement === newMediaElement && !oldMediaElement.paused) {
+                oldMediaElement.currentTime = 0;
+                if (newMedia.type === 'video') showScreenContent('video', newMedia.file);
+                if (isTransitionBeatPlaying) controlTransitionBeatVolume(0.2, TRANSITION_FADE_DURATION);
+                return;
+            }
+
+            currentPlayingIndex = index;
+            renderDraggablePlaylist();
+            renderOnConsolePlaylist();
+
+            newMediaElement.src = URL.createObjectURL(newMedia.file);
+            connectMediaToAudioContext(newMediaElement);
+            newMediaElement.load();
+            newMediaElement.volume = 0;
+
+            newMediaElement.play().then(() => {
+                isPlaying = true;
+                if (newMedia.type === 'audio') {
+                    beatVisualizer.classList.add('is-playing-audio');
+                } else {
+                    beatVisualizer.classList.remove('is-playing-audio');
+                }
+                fadeAudio(newMediaElement, 1, TRANSITION_FADE_DURATION);
+
+                if (isTransitionBeatPlaying) {
+                    controlTransitionBeatVolume(0.2, TRANSITION_FADE_DURATION);
+                }
+
+                console.log(`Reproduzindo: ${newMedia.name} (${newMedia.type})`);
+            }).catch(error => {
+                console.error("Erro ao tentar reproduzir mídia:", error);
+                alert("Não foi possível reproduzir a mídia. Verifique o formato ou permissões.");
+                handleMediaEndOrEmpty();
+            });
+        }
+
+        // --- Modified handleMediaEndOrEmpty for main transition beats ---
+        function handleMediaEndOrEmpty() {
+            isPlaying = false;
+            beatVisualizer.classList.remove('is-playing-audio');
+            isFadeOutTriggered = false;
+
+            currentPlayingIndex = -1;
+
+            if (currentTransitionBeatUrl) {
+                if (!isTransitionBeatPlaying) {
+                    transitionBeatAudio.src = currentTransitionBeatUrl;
+                    transitionBeatAudio.volume = 0;
+                    transitionBeatAudio.play().then(() => {
+                        isTransitionBeatPlaying = true;
+                        controlTransitionBeatVolume(0.5, TRANSITION_FADE_DURATION);
+                        console.log("Main transition beat started.");
+                    }).catch(e => console.error("Error playing main transition beat:", e));
+                } else {
+                    controlTransitionBeatVolume(0.5, TRANSITION_FADE_DURATION);
+                }
+                showScreenContent('energeticIdle');
+            } else {
+                if (isPoweredOn) {
+                    showScreenContent('energeticIdle');
+                } else {
+                    showScreenContent('off');
+                }
+            }
+
+            renderDraggablePlaylist();
+            renderOnConsolePlaylist();
+        }
+
+        // --- Event Listener for automatic track transition (fade out current song) ---
+        function setupMediaTransitionListeners(mediaElement) {
+            mediaElement.addEventListener('timeupdate', () => {
+                if (isPoweredOn && isPlaying && currentPlayingIndex !== -1 && mediaElement.duration) {
+                    const timeRemaining = mediaElement.duration - mediaElement.currentTime;
+
+                    if (timeRemaining <= AUTO_TRANSITION_TIME && timeRemaining > 0 && !isFadeOutTriggered) {
+                        isFadeOutTriggered = true;
+                        console.log(`Auto-transition triggered for track: ${addedMediaFiles[currentPlayingIndex]?.name}`);
+
+                        fadeAudio(mediaElement, 0, AUTO_TRANSITION_TIME * 1000, () => {
+                            mediaElement.pause();
+                            mediaElement.removeAttribute('src');
+                            if (mediaSourceNode) {
+                                mediaSourceNode.disconnect(mediaGainNode);
+                                mediaSourceNode = null;
+                            }
+                            console.log("Main track faded out, playing next or holding beat.");
+                        });
+
+                        if (currentTransitionBeatUrl) {
+                            if (!isTransitionBeatPlaying) {
+                                transitionBeatAudio.src = currentTransitionBeatUrl;
+                                transitionBeatAudio.volume = 0;
+                                transitionBeatAudio.play().then(() => {
+                                    isTransitionBeatPlaying = true;
+                                    controlTransitionBeatVolume(0.5, TRANSITION_FADE_DURATION);
+                                }).catch(e => console.error("Error playing main transition beat:", e));
+                            } else {
+                                controlTransitionBeatVolume(0.5, TRANSITION_FADE_DURATION);
+                            }
+                        }
+
+                        let nextIndexCandidate = currentPlayingIndex + 1;
+                        if (nextIndexCandidate < addedMediaFiles.length) {
+                            setTimeout(() => {
+                                playMedia(nextIndexCandidate);
+                            }, AUTO_TRANSITION_TIME * 1000);
+                        }
+                    }
+                }
+            });
+
+            mediaElement.addEventListener('ended', () => {
+                if (!isFadeOutTriggered) {
+                    handleMediaEndOrEmpty();
+                } else {
+                    isFadeOutTriggered = false;
+                }
+            });
+        }
+        setupMediaTransitionListeners(videoPlayer);
+        setupMediaTransitionListeners(audioPlayer);
+
+        // --- Global Play/Pause Function ---
+        async function togglePlayPause() {
+            initAudioContext();
+
+            if (!isPoweredOn) {
+                alert("A tela do DJ está desligada. Por favor, ligue-a primeiro para controlar mídias.");
+                return;
+            }
+
+            if (currentPlayingIndex === -1) {
+                if (addedMediaFiles.length > 0) {
+                    playMedia(0);
+                } else {
+                    alert("Nenhuma mídia na playlist para reproduzir.");
+                    showScreenContent('energeticIdle');
+                    if (isTransitionBeatPlaying) {
+                        controlTransitionBeatVolume(0.5, TRANSITION_FADE_DURATION);
+                    }
+                }
+                return;
+            }
+
+            const currentMedia = addedMediaFiles[currentPlayingIndex];
+            const player = currentMedia.type === 'video' ? videoPlayer : audioPlayer;
+
+            if (player.paused) {
+                player.play().then(() => {
+                    isPlaying = true;
+                    if (currentMedia.type === 'audio') {
+                        beatVisualizer.classList.add('is-playing-audio');
+                    }
+                    if (isTransitionBeatPlaying) {
+                        controlTransitionBeatVolume(0.2, TRANSITION_FADE_DURATION);
+                    }
+                    console.log("Reproduzindo...");
+                }).catch(error => {
+                    console.error("Erro ao retomar reprodução:", error);
+                    alert("Não foi possível retomar a reprodução.");
+                });
+            } else {
+                player.pause();
+                isPlaying = false;
+                beatVisualizer.classList.remove('is-playing-audio');
+                if (isTransitionBeatPlaying) {
+                    controlTransitionBeatVolume(0.5, TRANSITION_FADE_DURATION);
+                } else {
+                    showScreenContent('energeticIdle');
+                }
+                console.log("Pausado.");
+            }
+        }
+
+        // --- Play Next Track Function ---
+        function playNextTrack() {
+            initAudioContext();
+
+            if (!isPoweredOn) {
+                alert("A tela do DJ está desligada. Por favor, ligue-a primeiro para avançar.");
+                return;
+            }
+
+            if (addedMediaFiles.length === 0) {
+                alert("Nenhuma mídia na playlist para avançar.");
+                return;
+            }
+
+            let nextIndex = currentPlayingIndex + 1;
+            if (nextIndex >= addedMediaFiles.length) {
+                nextIndex = 0; // Loop back to the start
+            }
+
+            playMedia(nextIndex);
+        }
+
+        // --- Render Beats for a specific genre ---
+        function renderGenreBeats(genre) {
+            genreBeatsContainer.innerHTML = ''; // Clear previous beats
+            const beats = beatLibrary[genre];
+
+            beats.forEach(beat => {
+                const beatDiv = document.createElement('div');
+                beatDiv.className = 'flex items-center justify-between space-x-2';
+                // Check if this beat is the currently selected main transition beat to apply 'active-beat'
+                const isActiveBeat = (currentTransitionBeatUrl === beat.src);
+                beatDiv.innerHTML = `
+                    <button class="beat-option-btn flex-grow bg-gray-600 hover:bg-gray-500 text-white text-xs py-2 px-3 rounded-md transition-colors ${isActiveBeat ? 'active-beat' : ''}" data-src="${beat.src}" data-label="${beat.name}">${beat.name}</button>
+                    <button class="preview-beat-btn bg-gray-500 hover:bg-gray-400 text-white p-2 rounded-md transition-colors" data-src="${beat.src}" data-label="${beat.name}">
+                        <svg class="w-4 h-4 play-icon" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"></path></svg>
+                        <svg class="w-4 h-4 stop-icon hidden" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M6 6H14V14H6V6Z" clip-rule="evenodd"></path></svg>
+                    </button>
+                `;
+                genreBeatsContainer.appendChild(beatDiv);
+            });
+
+            // Re-attach event listeners for dynamically created buttons
+            attachBeatPanelListeners();
+        }
+
+        // --- Attach/Re-attach listeners for beat options within the panel ---
+        function attachBeatPanelListeners() {
+            // Select buttons
+            genreBeatsContainer.querySelectorAll('.beat-option-btn').forEach(button => {
+                button.onclick = (e) => {
+                    e.stopPropagation();
+                    const beatSrc = button.dataset.src;
+
+                    stopPreviewBeat(); // Stop any active preview
+                    clearActiveBeatStyling(); // Clear active styling from all buttons
+
+                    if (beatSrc) {
+                        currentTransitionBeatUrl = beatSrc;
+                        button.classList.add('active-beat'); // Apply active styling to the selected button
+                        initAudioContext();
+                        if (!isTransitionBeatPlaying) {
+                            transitionBeatAudio.src = currentTransitionBeatUrl;
+                            transitionBeatAudio.volume = 0;
+                            transitionBeatAudio.play().then(() => {
+                                isTransitionBeatPlaying = true;
+                                controlTransitionBeatVolume(isPlaying ? 0.2 : 0.5, TRANSITION_FADE_DURATION);
+                                console.log("Main transition beat selected and started.");
+                            }).catch(e => console.error("Error starting main transition beat:", e));
+                        } else {
+                            transitionBeatAudio.src = currentTransitionBeatUrl;
+                            transitionBeatAudio.load();
+                            transitionBeatAudio.play().then(() => {
+                                controlTransitionBeatVolume(isPlaying ? 0.2 : 0.5, TRANSITION_FADE_DURATION);
+                                console.log("Main transition beat changed and resumed.");
+                            }).catch(e => console.error("Error changing main transition beat:", e));
+                        }
+                    }
+                    beatOptionsPanel.classList.add('hidden'); // Close floating panel
+                };
+            });
+
+            // Preview buttons
+            genreBeatsContainer.querySelectorAll('.preview-beat-btn').forEach(button => {
+                button.onclick = (e) => {
+                    e.stopPropagation();
+                    const beatSrc = button.dataset.src;
+
+                    if (activePreviewButton === button) {
+                        stopPreviewBeat();
+                        console.log("Preview beat stopped.");
+                    } else {
+                        stopPreviewBeat(); // Stop any other active preview first
+
+                        previewBeatAudio.src = beatSrc;
+                        previewBeatAudio.load();
+                        previewBeatAudio.play().then(() => {
+                            activePreviewButton = button;
+                            button.querySelector('.play-icon').classList.add('hidden');
+                            button.querySelector('.stop-icon').classList.remove('hidden');
+                            console.log(`Previewing beat: ${button.dataset.label}`);
+                        }).catch(error => {
+                            console.error("Error playing preview beat:", error);
+                            alert("Não foi possível pré-visualizar a batida.");
+                            stopPreviewBeat();
+                        });
+                    }
+                };
+            });
+        }
+
+        // --- General Event Listeners ---
+        mediaButton.addEventListener('click', () => {
+            mediaInterface.classList.remove('hidden');
+            renderMediaList();
+        });
+
+        closeMediaInterface.addEventListener('click', () => {
+            mediaInterface.classList.add('hidden');
+        });
+
+        mediaInterface.addEventListener('click', (e) => {
+            if (e.target === mediaInterface) {
+                mediaInterface.classList.add('hidden');
+            }
+        });
+
+        addMediaButton.addEventListener('click', () => {
+            mediaFileInput.click();
+        });
+
+        mediaFileInput.addEventListener('change', (event) => {
+            const files = Array.from(event.target.files);
+            if (files.length > 0) {
+                files.forEach(file => {
+                    const type = file.type.startsWith('audio/') ? 'audio' : (file.type.startsWith('video/') ? 'video' : 'unknown');
+                    if (type !== 'unknown') {
+                        addedMediaFiles.push({ file: file, type: type, name: file.name });
+                    } else {
+                        alert(`File "${file.name}" is not a supported audio or video format.`);
+                    }
+                });
+                renderMediaList();
+                renderDraggablePlaylist();
+                renderOnConsolePlaylist();
+                event.target.value = '';
+            }
+        });
+
+        mediaList.addEventListener('click', (e) => {
+            if (e.target.classList.contains('remove-media')) {
+                const indexToRemove = parseInt(e.target.dataset.index);
+                addedMediaFiles.splice(indexToRemove, 1);
+
+                if (currentPlayingIndex === indexToRemove) {
+                    handleMediaEndOrEmpty();
+                } else if (currentPlayingIndex > indexToRemove) {
+                    currentPlayingIndex--;
+                }
+
+                renderMediaList();
+                renderDraggablePlaylist();
+                renderOnConsolePlaylist();
+            }
+        });
+
+        openAdvancedPlaylistButton.addEventListener('click', () => {
+            mediaInterface.classList.add('hidden');
+            advancedPlaylistInterface.classList.remove('hidden');
+            renderDraggablePlaylist();
+        });
+
+        closeAdvancedPlaylist.addEventListener('click', () => {
+            advancedPlaylistInterface.classList.add('hidden');
+        });
+
+        advancedPlaylistInterface.addEventListener('click', (e) => {
+            if (e.target === advancedPlaylistInterface) {
+                advancedPlaylistInterface.classList.add('hidden');
+            }
+        });
+
+        // --- Drag-and-Drop Functionality ---
+        draggablePlaylist.addEventListener('dragstart', (e) => {
+            draggedItem = e.target.closest('li');
+            if (!draggedItem) return;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', draggedItem.dataset.index);
+            setTimeout(() => draggedItem.classList.add('dragging'), 0);
+        });
+
+        draggablePlaylist.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const targetItem = e.target.closest('li');
+            if (targetItem && targetItem !== draggedItem) {
+                const bounding = targetItem.getBoundingClientRect();
+                const offset = bounding.y + (bounding.height / 2);
+                document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(item => {
+                    item.classList.remove('drag-over-top', 'drag-over-bottom');
+                });
+                if (e.clientY - offset > 0) {
+                    targetItem.classList.add('drag-over-bottom');
+                } else {
+                    targetItem.classList.add('drag-over-top');
+                }
+            }
+        });
+
+        draggablePlaylist.addEventListener('dragleave', (e) => {
+            e.target.closest('li')?.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+
+        draggablePlaylist.addEventListener('drop', (e) => {
+            e.preventDefault();
+            document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(item => {
+                item.classList.remove('drag-over-top', 'drag-over-bottom');
+            });
+            if (draggedItem) {
+                const targetItem = e.target.closest('li');
+                if (targetItem && targetItem !== draggedItem) {
+                    const droppedIndex = parseInt(draggedItem.dataset.index);
+                    const targetIndex = parseInt(targetItem.dataset.index);
+                    const [removed] = addedMediaFiles.splice(droppedIndex, 1);
+                    let newIndex;
+                    if (targetItem.classList.contains('drag-over-bottom')) {
+                        newIndex = targetIndex + 1;
+                    } else {
+                        newIndex = targetIndex;
+                    }
+                    addedMediaFiles.splice(newIndex, 0, removed);
+                    if (currentPlayingIndex === droppedIndex) {
+                        currentPlayingIndex = newIndex;
+                    } else if (currentPlayingIndex > droppedIndex && currentPlayingIndex <= newIndex) {
+                        currentPlayingIndex--;
+                    } else if (currentPlayingIndex < droppedIndex && currentPlayingIndex >= newIndex) {
+                        currentPlayingIndex++;
+                    }
+                    renderDraggablePlaylist();
+                    renderMediaList();
+                    renderOnConsolePlaylist();
+                }
+            }
+        });
+
+        draggablePlaylist.addEventListener('dragend', (e) => {
+            if (draggedItem) {
+                draggedItem.classList.remove('dragging');
+            }
+            draggedItem = null;
+            document.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(item => {
+                item.classList.remove('drag-over-top', 'drag-over-bottom');
+            });
+        });
+
+        // --- Power Button Logic ---
+        powerButton.addEventListener('click', () => {
+            isPoweredOn = !isPoweredOn;
+            if (welcomeTimeout) {
+                clearTimeout(welcomeTimeout);
+                welcomeTimeout = null;
+            }
+
+            if (isPoweredOn) {
+                showScreenContent('welcome');
+            } else {
+                showScreenContent('off');
+                currentPlayingIndex = -1;
+                isPlaying = false;
+                isFadeOutTriggered = false;
+                renderDraggablePlaylist();
+                renderOnConsolePlaylist();
+                videoPlayer.pause();
+                audioPlayer.pause();
+                if (isTransitionBeatPlaying) {
+                    fadeGain(transitionBeatGainNode, 0, TRANSITION_FADE_DURATION, () => {
+                        transitionBeatAudio.pause();
+                        transitionBeatAudio.removeAttribute('src');
+                        isTransitionBeatPlaying = false;
+                        if (transitionBeatSourceNode) {
+                            transitionBeatSourceNode.disconnect(transitionBeatGainNode);
+                            transitionBeatSourceNode = null;
+                        }
+                    });
+                }
+                if (mediaSourceNode) {
+                    mediaSourceNode.disconnect(mediaGainNode);
+                    mediaSourceNode = null;
+                }
+                // Also ensure microphone is turned off when powering down the console
+                if (isMicrophoneOn) {
+                    isMicrophoneOn = false;
+                    microphoneButton.classList.remove('bg-red-600', 'text-white', 'ring-2', 'ring-red-400');
+                    microphoneButton.classList.add('text-red-500');
+                    if (micSourceNode) {
+                        micSourceNode.disconnect(micGainNode);
+                        micSourceNode = null;
+                    }
+                    if (micStream) {
+                        micStream.getTracks().forEach(track => track.stop());
+                        micStream = null;
+                    }
+                    console.log("Microfone DESLIGADO devido ao desligamento da tela.");
+                }
+
+                stopPreviewBeat(); // Stop preview when power off
+                clearActiveBeatStyling(); // Clear active beat styling on power off
+                avOptionsPanel.classList.add('hidden'); // Close AV panel
+                beatOptionsPanel.classList.add('hidden'); // Close Beat panel
+            }
+        });
+
+        // --- Microphone Button Logic ---
+        microphoneButton.addEventListener('click', async () => {
+            initAudioContext();
+
+            isMicrophoneOn = !isMicrophoneOn;
+            if (isMicrophoneOn) {
+                microphoneButton.classList.remove('text-red-500');
+                microphoneButton.classList.add('bg-red-600', 'text-white', 'ring-2', 'ring-red-400');
+                console.log("Microfone LIGADO.");
+
+                try {
+                    // Check if Web Audio API is initialized and resumed
+                    if (audioContext.state === 'suspended') {
+                        await audioContext.resume();
+                    }
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    micSourceNode = audioContext.createMediaStreamSource(micStream);
+                    micSourceNode.connect(micGainNode);
+                    // The microphone audio is now routed through micGainNode and mixed with
+                    // other audio sources connected to the audioContext.destination.
+                    // This ensures it adds to the sound, rather than replacing or muting other elements.
+                    console.log("Microfone conectado ao AudioContext e misturado com o áudio principal.");
+                } catch (err) {
+                    console.error("Erro ao acessar o microfone:", err);
+                    alert("Não foi possível acessar o microfone. Verifique as permissões do navegador e se o site está em HTTPS.");
+                    isMicrophoneOn = false;
+                    microphoneButton.classList.remove('bg-red-600', 'text-white', 'ring-2', 'ring-red-400');
+                    microphoneButton.classList.add('text-red-500');
+                }
+            } else {
+                microphoneButton.classList.remove('bg-red-600', 'text-white', 'ring-2', 'ring-red-400');
+                microphoneButton.classList.add('text-red-500');
+                console.log("Microfone DESLIGADO.");
+                if (micSourceNode) {
+                    micSourceNode.disconnect(micGainNode);
+                    micSourceNode = null;
+                }
+                if (micStream) {
+                    micStream.getTracks().forEach(track => track.stop());
+                    micStream = null;
+                }
+            }
+        });
+
+        // --- Event Listeners for main control buttons ---
+        button1.addEventListener('click', playNextTrack);
+        playPauseButton.addEventListener('click', togglePlayPause);
+        if (playButtonLeft) playButtonLeft.addEventListener('click', togglePlayPause);
+        if (playButtonRight) playButtonRight.addEventListener('click', togglePlayPause);
+
+        // --- Button 3 (Beats/FX) and Floating Panel Logic ---
+        button3.addEventListener('click', (e) => {
+            e.stopPropagation();
+            avOptionsPanel.classList.add('hidden'); // Close AV panel if open
+            beatOptionsPanel.classList.toggle('hidden');
+            if (!beatOptionsPanel.classList.contains('hidden')) {
+                renderGenreBeats('eletronica'); // Default to 'eletronica' when opening
+                genreTabButtons.forEach(btn => {
+                    if (btn.dataset.genre === 'eletronica') {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+            } else {
+                stopPreviewBeat();
+            }
+        });
+
+        // Event listeners for genre tabs
+        genreTabButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                e.stopPropagation();
+                genreTabButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+                renderGenreBeats(button.dataset.genre);
+                stopPreviewBeat(); // Stop any preview when switching tabs
+            });
+        });
+
+        // Event listener for "Parar Batida" button (it's always visible in the panel)
+        stopAllBeatsButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            stopPreviewBeat();
+            clearActiveBeatStyling();
+            currentTransitionBeatUrl = '';
+            if (isTransitionBeatPlaying) {
+                controlTransitionBeatVolume(0, TRANSITION_FADE_DURATION, () => {
+                    transitionBeatAudio.pause();
+                    transitionBeatAudio.removeAttribute('src');
+                    isTransitionBeatPlaying = false;
+                    if (transitionBeatSourceNode) {
+                        transitionBeatSourceNode.disconnect(transitionBeatGainNode);
+                        transitionBeatSourceNode = null;
+                    }
+                });
+            }
+            if (!isPlaying && isPoweredOn) {
+                showScreenContent('energeticIdle');
+            }
+            beatOptionsPanel.classList.add('hidden'); // Close floating panel
+        });
+
+        // When the preview audio finishes (e.g., if loop is turned off later, or for debugging)
+        previewBeatAudio.addEventListener('ended', () => {
+            stopPreviewBeat();
+        });
+        previewBeatAudio.addEventListener('pause', () => {
+            if (previewBeatAudio.currentTime === 0 && !previewBeatAudio.src) {
+                stopPreviewBeat();
+            }
+        });
+
+        // --- AV Button Logic ---
+        avButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            beatOptionsPanel.classList.add('hidden'); // Close Beat panel if open
+            stopPreviewBeat(); // Stop any beat preview if panel was open
+            avOptionsPanel.classList.toggle('hidden');
+            // If the AV panel is opened, you might want to show a message or simulated options
+            if (!avOptionsPanel.classList.contains('hidden')) {
+                console.log("AV panel opened.");
+            }
+        });
+
+        // Close floating panels if clicking anywhere else on the document
+        document.addEventListener('click', (e) => {
+            // Close Beat Options Panel
+            if (!beatOptionsPanel.classList.contains('hidden') && !beatOptionsPanel.contains(e.target) && !button3.contains(e.target)) {
+                beatOptionsPanel.classList.add('hidden');
+                stopPreviewBeat();
+            }
+            // Close AV Options Panel
+            if (!avOptionsPanel.classList.contains('hidden') && !avOptionsPanel.contains(e.target) && !avButton.contains(e.target)) {
+                avOptionsPanel.classList.add('hidden');
+            }
+        });
+
+        // --- PWA Installation Logic ---
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Prevent the mini-infobar from appearing on mobile
+            e.preventDefault();
+            // Stash the event so it can be triggered later.
+            deferredPrompt = e;
+            // Update UI notify the user they can install the PWA
+            installPwaButton.style.display = 'flex';
+            console.log("beforeinstallprompt fired, 'Install PWA' button shown.");
+        });
+
+        installPwaButton.addEventListener('click', async () => {
+            // Hide the install button
+            installPwaButton.style.display = 'none';
+            // Show the install prompt
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                // Wait for the user to respond to the prompt
+                const { outcome } = await deferredPrompt.userChoice;
+                // Optionally, send analytics event with outcome of user choice
+                console.log(`User response to the install prompt: ${outcome}`);
+                // Clear the deferred prompt, it can't be used again.
+                deferredPrompt = null;
+            }
+        });
+
+        window.addEventListener('appinstalled', () => {
+            // Hide the install button
+            installPwaButton.style.display = 'none';
+            console.log('PWA was installed');
+            alert('DJ PWA instalado com sucesso! 🎉');
+        });
+
+        // --- Service Worker Registration ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then((registration) => {
+                        console.log('Service Worker registrado com sucesso. Escopo:', registration.scope);
+                    })
+                    .catch((error) => {
+                        console.error('Falha ao registrar o Service Worker:', error);
+                    });
+            });
+        }
+
+        // Initialization
+        updateMediaCount();
+        showScreenContent('off'); // Ensure screen starts off
+        renderOnConsolePlaylist(); // Initial render of the on-console playlist
+    </script>
+</body>
+  </html>
